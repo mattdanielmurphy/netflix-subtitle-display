@@ -8,8 +8,6 @@ import styles from './page.module.css';
 export default function SubtitleLogPage() {
     const logContainerRef = useRef(null);
     const statusMessageRef = useRef(null);
-    const playBtnRef = useRef(null);
-    const pauseBtnRef = useRef(null);
     const back10BtnRef = useRef(null);
     const forward10BtnRef = useRef(null);
     const toggleOrderBtnRef = useRef(null);
@@ -18,9 +16,20 @@ export default function SubtitleLogPage() {
     const [latestEntryId, setLatestEntryId] = useState(null);
     const [currentEpisodeId, setCurrentEpisodeId] = useState(null);
     const [isReverseOrder, setIsReverseOrder] = useState(() => {
-        return typeof window !== 'undefined' ? localStorage.getItem('subtitleOrder') !== 'chronological' : true;
+        if (typeof window !== 'undefined') {
+            const stored = localStorage.getItem('subtitleOrder');
+            return stored !== 'chronological';
+        }
+        return true;
     });
     const socketRef = useRef(null);
+    const [isShowTimestamps, setIsShowTimestamps] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const stored = localStorage.getItem('showTimestamps');
+            return stored === null ? false : stored === 'true';
+        }
+        return false;
+    });
 
     const updateButtonText = useCallback(() => {
         if (toggleOrderBtnRef.current) {
@@ -80,16 +89,14 @@ export default function SubtitleLogPage() {
                 newEntry.classList.add(styles.latest);
             }
             newEntry.dataset.timeInSeconds = data.timeInSeconds;
-
-            const timeSpan = document.createElement("span");
-            timeSpan.className = styles.timestamp;
-            timeSpan.textContent = `[${data.time}]`;
-
+            if (isShowTimestamps) {
+                newEntry.setAttribute('data-timestamp', `[${data.time}]`);
+            } else {
+                newEntry.removeAttribute('data-timestamp');
+            }
             const textSpan = document.createElement("span");
             textSpan.className = styles.subtitleText;
             textSpan.textContent = data.text;
-
-            newEntry.appendChild(timeSpan);
             newEntry.appendChild(textSpan);
             logContainer.appendChild(newEntry);
         });
@@ -106,7 +113,7 @@ export default function SubtitleLogPage() {
                 latestElement.scrollIntoView({ behavior: "auto", block: "center" });
             }
         }
-    }, [subtitleLog, isReverseOrder, latestEntryId]);
+    }, [subtitleLog, isReverseOrder, latestEntryId, isShowTimestamps]);
 
     useEffect(() => {
         renderLog();
@@ -291,11 +298,7 @@ export default function SubtitleLogPage() {
     }, [sendSocketMessage]);
 
     const handleToggleOrder = () => {
-        setIsReverseOrder(prev => {
-            const newOrder = !prev;
-            localStorage.setItem('subtitleOrder', newOrder ? 'reverse' : 'chronological');
-            return newOrder;
-        });
+        setIsReverseOrder(prev => !prev);
     };
 
     const handleLogEntryClick = (e) => {
@@ -308,20 +311,37 @@ export default function SubtitleLogPage() {
         }
     };
 
+    useEffect(() => {
+        localStorage.setItem('showTimestamps', isShowTimestamps);
+    }, [isShowTimestamps]);
+
+    useEffect(() => {
+        localStorage.setItem('subtitleOrder', isReverseOrder ? 'reverse' : 'chronological');
+    }, [isReverseOrder]);
+
     return (
         <div className={styles.body}>
             <Head>
                 <title>Subtitle Log</title>
             </Head>
             <div id="status-message" ref={statusMessageRef} className={styles.statusMessage}>Connecting...</div>
+            <div id="log-container" ref={logContainerRef} onClick={handleLogEntryClick} className={styles.logContainer}></div>
             <div id="controls" className={styles.controls}>
-                <button id="play-btn" ref={playBtnRef} onClick={() => sendSocketMessage("play")}>▶</button>
-                <button id="pause-btn" ref={pauseBtnRef} onClick={() => sendSocketMessage("pause")}>⏸</button>
+                <button
+                    id="play-pause-btn"
+                    onClick={() => {
+                        sendSocketMessage("togglePlay");
+                    }}
+                >
+                    {"▶ / ⏸"}
+                </button>
                 <button id="back-10-btn" ref={back10BtnRef} onClick={() => sendSocketMessage("seekRelative", { offsetInSeconds: -10 })}>⏪</button>
                 <button id="forward-10-btn" ref={forward10BtnRef} onClick={() => sendSocketMessage("seekRelative", { offsetInSeconds: 10 })}>⏩</button>
+                <button id="toggle-timestamps-btn" onClick={() => setIsShowTimestamps((prev) => !prev)}>
+                    {isShowTimestamps ? "Hide Timestamps" : "Show Timestamps"}
+                </button>
                 <button id="toggle-order-btn" ref={toggleOrderBtnRef} onClick={handleToggleOrder}>Sort: Oldest First</button>
             </div>
-            <div id="log-container" ref={logContainerRef} onClick={handleLogEntryClick} className={styles.logContainer}></div>
         </div>
     );
 }
