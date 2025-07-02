@@ -14,12 +14,6 @@
     box-sizing: border-box;
 }
 
-:global(*),
-:global(*::before),
-:global(*::after) {
-    box-sizing: inherit;
-}
-
 .body::-webkit-scrollbar {
     display: none;
     /* Chrome, Safari, Opera */
