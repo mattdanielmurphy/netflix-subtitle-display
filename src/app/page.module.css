@@ -79,6 +79,7 @@
     font-family: monospace;
     font-size: 0.9em;
     margin-right: 10px;
+    user-select: none; /* Prevent timestamp from being selected */
 }
 
 .subtitleText {
