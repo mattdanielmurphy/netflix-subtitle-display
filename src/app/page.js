@@ -5,6 +5,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import styles from './page.module.css';
 
+// Helper to get current wall-clock time as a string
+function logWithTime(...args) {
+    console.log(`[${new Date().toISOString()}]`, ...args);
+}
+
 export default function SubtitleLogPage() {
     const logContainerRef = useRef(null);
     const statusMessageRef = useRef(null);
@@ -31,6 +36,8 @@ export default function SubtitleLogPage() {
         return false;
     });
 
+    const episodeIdDebounceRef = useRef({ timer: null, pending: null });
+
     const updateButtonText = useCallback(() => {
         if (toggleOrderBtnRef.current) {
             toggleOrderBtnRef.current.textContent = isReverseOrder ? 'Sort: Newest First' : 'Sort: Oldest First';
@@ -42,7 +49,7 @@ export default function SubtitleLogPage() {
             try {
                 localStorage.setItem(`diaLOG_${episodeId}`, JSON.stringify(logToSave));
             } catch (e) {
-                console.error("[diaLOG] Error saving to localStorage:", e);
+                logWithTime("[diaLOG] Error saving to localStorage:", e);
             }
         } else if (episodeId) {
             localStorage.removeItem(`diaLOG_${episodeId}`);
@@ -56,7 +63,7 @@ export default function SubtitleLogPage() {
             try {
                 setSubtitleLog(JSON.parse(storedLog));
             } catch (e) {
-                console.error("[diaLOG] Error parsing stored diaLOG:", e);
+                logWithTime("[diaLOG] Error parsing stored diaLOG:", e);
                 setSubtitleLog([]);
             }
         } else {
@@ -84,16 +91,29 @@ export default function SubtitleLogPage() {
 
         sortedLog.forEach((data) => {
             const newEntry = document.createElement("div");
-            newEntry.className = styles.logEntry;
-            if (data.id === latestEntryId) {
-                newEntry.classList.add(styles.latest);
-            }
+            newEntry.className = styles.logEntry + (data.id === latestEntryId ? ` ${styles.latest}` : "");
             newEntry.dataset.timeInSeconds = data.timeInSeconds;
             if (isShowTimestamps) {
                 newEntry.setAttribute('data-timestamp', `[${data.time}]`);
             } else {
                 newEntry.removeAttribute('data-timestamp');
             }
+            // Create the seek arrow button
+            const arrowBtn = document.createElement("button");
+            arrowBtn.className = styles.seekArrow;
+            arrowBtn.setAttribute('tabindex', '0');
+            arrowBtn.setAttribute('aria-label', 'Seek to this line');
+            arrowBtn.innerHTML = '▶';
+            arrowBtn.dataset.timeInSeconds = data.timeInSeconds;
+            // Prevent click from bubbling to parent
+            arrowBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+                    socketRef.current.send(JSON.stringify({ type: "seek", timeInSeconds: data.timeInSeconds }));
+                }
+            });
+            newEntry.appendChild(arrowBtn);
+            // Subtitle text
             const textSpan = document.createElement("span");
             textSpan.className = styles.subtitleText;
             textSpan.textContent = data.text;
@@ -146,6 +166,11 @@ export default function SubtitleLogPage() {
                     statusMessageRef.current.textContent = "Connected";
                 }
                 reconnectAttempts = 0;
+                
+                // Send identification immediately after connection
+                logWithTime("[Subtitle Display] Sending identification after reconnection");
+                socket.send(JSON.stringify({ type: "identify", client: "display", episodeId: currentEpisodeId }));
+                
                 setTimeout(() => {
                     if (statusMessageRef.current) {
                         statusMessageRef.current.style.display = "none";
@@ -217,28 +242,60 @@ export default function SubtitleLogPage() {
                         }
                     });
                 } else if (data.type === "episodeId") {
-                    console.log(`[Subtitle Display] Received episodeId: ${data.episodeId}. Current episodeId: ${currentEpisodeId}`);
-                    localStorage.setItem("currentNetflixEpisodeId", data.episodeId);
-                    if (currentEpisodeId !== data.episodeId) {
-                        console.log(`[Subtitle Display] Episode ID changed from ${currentEpisodeId} to ${data.episodeId}. Clearing log.`);
-                        if (currentEpisodeId) {
-                            localStorage.removeItem(`diaLOG_${currentEpisodeId}`);
-                        }
-                        setCurrentEpisodeId(data.episodeId);
-                        setSubtitleLog([]);
-                        console.log(`[Subtitle Display] Log cleared and re-rendered for new episode.`);
+                    // Debounce logic for episodeId changes
+                    if (episodeIdDebounceRef.current.timer) {
+                        clearTimeout(episodeIdDebounceRef.current.timer);
                     }
-                    loadLog(data.episodeId);
-                    console.log(`[Subtitle Display] Loaded log for episode: ${data.episodeId}`);
+                    episodeIdDebounceRef.current.pending = data.episodeId;
+                    episodeIdDebounceRef.current.timer = setTimeout(() => {
+                        const newEpisodeId = episodeIdDebounceRef.current.pending;
+                        const currentId = currentEpisodeId;
+
+                        logWithTime(`[Subtitle Display] (debounced) Received episodeId: "${newEpisodeId}" (type: ${typeof newEpisodeId}), current: "${currentId}"`);
+
+                        // Only proceed if we have a valid episode ID
+                        if (!newEpisodeId || newEpisodeId === 'null' || newEpisodeId === 'undefined') {
+                            logWithTime(`[Subtitle Display] (debounced) Invalid episode ID received: ${newEpisodeId}. Ignoring.`);
+                            return;
+                        }
+
+                        localStorage.setItem("currentNetflixEpisodeId", newEpisodeId);
+
+                        // Use string comparison to avoid unnecessary log clearing
+                        if (String(currentId) !== String(newEpisodeId) && currentId !== null && currentId !== undefined) {
+                            logWithTime(`[Subtitle Display] (debounced) Episode ID changed from "${currentId}" to "${newEpisodeId}". Clearing log.`);
+                            if (currentId) {
+                                localStorage.removeItem(`diaLOG_${currentId}`);
+                            }
+                            setCurrentEpisodeId(newEpisodeId);
+                            setSubtitleLog([]);
+                            logWithTime(`[Subtitle Display] (debounced) Log cleared and loaded for episode: ${newEpisodeId}`);
+                            loadLog(newEpisodeId);
+                        } else if (currentId === newEpisodeId) {
+                            logWithTime(`[Subtitle Display] (debounced) Same episode ID received: "${newEpisodeId}". No action needed.`);
+                        } else if (currentId === null || currentId === undefined) {
+                            logWithTime(`[Subtitle Display] (debounced) First episode ID received: "${newEpisodeId}". Loading log.`);
+                            setCurrentEpisodeId(newEpisodeId);
+                            loadLog(newEpisodeId);
+                            logWithTime(`[Subtitle Display] (debounced) Loaded log for episode: ${newEpisodeId}`);
+                        }
+                        episodeIdDebounceRef.current.timer = null;
+                        episodeIdDebounceRef.current.pending = null;
+                    }, 300);
                 }
             } catch (error) {
-                console.error("Failed to parse incoming data:", event.data, error);
+                logWithTime("Failed to parse incoming data:", event.data, error);
             }
         };
 
         return () => {
             if (socketRef.current) {
                 socketRef.current.onmessage = null;
+            }
+            if (episodeIdDebounceRef.current.timer) {
+                clearTimeout(episodeIdDebounceRef.current.timer);
+                episodeIdDebounceRef.current.timer = null;
+                episodeIdDebounceRef.current.pending = null;
             }
         };
     }, [currentEpisodeId, loadLog, saveLog]);
@@ -248,38 +305,36 @@ export default function SubtitleLogPage() {
 
         const identifyClient = () => {
             if (socketRef.current.readyState === WebSocket.OPEN) {
+                logWithTime("[Subtitle Display] Sending identification due to episodeId change");
                 socketRef.current.send(JSON.stringify({ type: "identify", client: "display", episodeId: currentEpisodeId }));
             }
         };
 
+        // Send identification whenever episodeId changes and socket is open
         if (socketRef.current.readyState === WebSocket.OPEN) {
             identifyClient();
-        } else {
-            socketRef.current.addEventListener('open', identifyClient);
         }
 
         return () => {
-            if (socketRef.current) {
-                socketRef.current.removeEventListener('open', identifyClient);
-            }
+            // Cleanup not needed since we're not adding event listeners anymore
         };
     }, [currentEpisodeId]);
 
     const sendSocketMessage = useCallback((type, payload = {}) => {
-        console.log(`[Subtitle Page] Sending message: ${type}`, payload);
+        logWithTime(`[Subtitle Page] Sending message: ${type}`, payload);
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({ type, ...payload }));
         } else {
-            console.warn(`[Subtitle Page] WebSocket not open. Cannot send message: ${type}`);
+            logWithTime(`[Subtitle Page] WebSocket not open. Cannot send message: ${type}`);
         }
     }, []);
 
     useEffect(() => {
         const handleKeyDown = (e) => {
-            console.log(`[Subtitle Page] Keydown event detected: ${e.code}`);
+            logWithTime(`[Subtitle Page] Keydown event detected: ${e.code}`);
             if (e.code === 'Space') {
                 e.preventDefault();
-                console.log("[Subtitle Page] Spacebar pressed, calling sendSocketMessage with 'togglePlay'");
+                logWithTime("[Subtitle Page] Spacebar pressed, calling sendSocketMessage with 'togglePlay'");
                 sendSocketMessage("togglePlay");
             } else if (e.code === 'ArrowLeft') {
                 e.preventDefault();
@@ -301,14 +356,8 @@ export default function SubtitleLogPage() {
         setIsReverseOrder(prev => !prev);
     };
 
-    const handleLogEntryClick = (e) => {
-        const entry = e.target.closest(`.${styles.logEntry}`);
-        if (entry && entry.dataset.timeInSeconds) {
-            const timeInSeconds = parseFloat(entry.dataset.timeInSeconds);
-            if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-                socketRef.current.send(JSON.stringify({ type: "seek", timeInSeconds: timeInSeconds }));
-            }
-        }
+    const handleLogEntryClick = () => {
+        // Only handle clicks on the arrow, so do nothing here
     };
 
     useEffect(() => {
@@ -335,8 +384,12 @@ export default function SubtitleLogPage() {
                 >
                     {"▶ / ⏸"}
                 </button>
-                <button id="back-10-btn" ref={back10BtnRef} onClick={() => sendSocketMessage("seekRelative", { offsetInSeconds: -10 })}>⏪</button>
-                <button id="forward-10-btn" ref={forward10BtnRef} onClick={() => sendSocketMessage("seekRelative", { offsetInSeconds: 10 })}>⏩</button>
+                <button id="back-10-btn" ref={back10BtnRef} onClick={() => sendSocketMessage("seekRelative", { offsetInSeconds: -10 })}>
+                    ⏮
+                </button>
+                <button id="forward-10-btn" ref={forward10BtnRef} onClick={() => sendSocketMessage("seekRelative", { offsetInSeconds: 10 })}>
+                    ⏭
+                </button>
                 <button id="toggle-timestamps-btn" onClick={() => setIsShowTimestamps((prev) => !prev)}>
                     {isShowTimestamps ? "Hide Timestamps" : "Show Timestamps"}
                 </button>

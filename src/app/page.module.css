@@ -1,8 +1,8 @@
 .body {
     background-color: #000;
-    color: #000;
+    color: #fff;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    font-size: 2rem;
+    font-size: 3rem;
     line-height: 1.6;
     margin: 0;
     overflow: hidden;
@@ -12,6 +12,25 @@
     -ms-overflow-style: none;
     /* IE and Edge */
     box-sizing: border-box;
+}
+
+/* Media queries for responsive text sizing */
+@media (max-width: 1200px) {
+    .body {
+        font-size: 2.5rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .body {
+        font-size: 2rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .body {
+        font-size: 1.5rem;
+    }
 }
 
 .body::-webkit-scrollbar {
@@ -43,10 +62,23 @@
     cursor: pointer;
     font-size: 1rem;
     transition: background-color 0.2s ease;
+    outline: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
 }
 
 .controls button:hover {
-    background-color: #999;
+    background-color: #555;
+}
+
+.controls button:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+
+.controls button:active {
+    background-color: #444;
 }
 
 .logContainer {
@@ -59,9 +91,11 @@
     height: auto;
     overflow-y: auto;
     padding: 20px;
+    padding-left: 40px;
     box-sizing: border-box;
     scrollbar-width: none;
     -ms-overflow-style: none;
+    background-color: #000;
 }
 
 .logContainer::-webkit-scrollbar {
@@ -70,19 +104,17 @@
 }
 
 .logEntry {
-    padding: 0.25rem;
-    opacity: 0.7;
+    padding: 0.2rem 0;
     transition: opacity 0.3s ease;
-    cursor: pointer;
-}
-
-.logEntry:hover {
-    background-color: #ddd;
+    color: #888;
+    margin-left: 0;
+    position: relative;
+    /* Needed for absolute positioning of arrow */
 }
 
 .logEntry.latest {
-    opacity: 1;
     font-weight: bold;
+    color: #fff;
 }
 
 .logEntry[data-timestamp]::before {
@@ -90,9 +122,36 @@
     color: #888;
     font-family: monospace;
     font-size: 0.9em;
-    margin-right: 10px;
     user-select: none;
     pointer-events: none;
+}
+
+/* Add extra left margin when timestamps are hidden */
+.logEntry:not([data-timestamp]) {
+    margin-left: 20px;
+}
+
+/* Responsive adjustments for log container padding */
+@media (max-width: 768px) {
+    .logContainer {
+        padding: 15px;
+        padding-left: 25px;
+    }
+
+    .logEntry:not([data-timestamp]) {
+        margin-left: 15px;
+    }
+}
+
+@media (max-width: 480px) {
+    .logContainer {
+        padding: 10px;
+        padding-left: 20px;
+    }
+
+    .logEntry:not([data-timestamp]) {
+        margin-left: 10px;
+    }
 }
 
 .timestamp {
@@ -108,8 +167,44 @@
     top: 10px;
     left: 50%;
     transform: translateX(-50%);
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: rgba(0, 0, 0, 0.8);
+    color: #fff;
     padding: 5px 15px;
     border-radius: 10px;
     font-size: 0.9em;
+    border: 1px solid #333;
+}
+
+.logEntry .seekArrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: .8em;
+    z-index: 1;
+    margin-right: .5em;
+
+}
+
+.logEntry:hover .seekArrow {
+    opacity: 1;
+    cursor: pointer;
+}
+
+.logEntry .seekArrow:hover {
+    cursor: pointer;
+    color: white;
+}
+
+.seekArrow:focus {
+    outline: 2px solid #fff;
+    color: #fff;
+}
+
+.logContainer .seekArrow {
+    cursor: pointer !important;
 }
